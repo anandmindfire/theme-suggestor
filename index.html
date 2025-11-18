@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>WebLLM - Theme Suggestor</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm/dist/index.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 30px;
+      background: #f4f6f8;
+    }
+    #output {
+      white-space: pre-wrap;
+      padding: 10px;
+      background: #fff;
+      border-radius: 10px;
+      min-height: 150px;
+      margin-top: 20px;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+    }
+    input {
+      padding: 10px;
+      width: 80%;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>WebLLM • Theme Suggestor (0.6B - Q4_K_M)</h2>
+
+  <p><strong>Status:</strong> <span id="status">Loading model...</span></p>
+
+  <input id="prompt" type="text" placeholder="Type your prompt (e.g., suggest me a theme)">
+  <button onclick="runPrompt()">Run</button>
+
+  <h3>Response:</h3>
+  <div id="output"></div>
+
+  <script>
+    let engine;
+
+    async function loadModel() {
+      document.getElementById("status").innerText = "Downloading GGUF & Initializing WebGPU...";
+
+      engine = await webllm.createEngine({
+        model_url: "https://huggingface.co/anand-ai/theme-suggestor-Q4_K_M-GGUF/resolve/main/theme-suggestor-q4_k_m.gguf",
+        runtime: "webgpu"
+      });
+
+      document.getElementById("status").innerText = "Model Loaded ✔ WebGPU Ready";
+    }
+
+    async function runPrompt() {
+      const prompt = document.getElementById("prompt").value;
+      if (!prompt) return alert("Enter a prompt!");
+
+      document.getElementById("output").innerText = "Generating...";
+
+      const result = await engine.chat.completions.create({
+        messages: [{ role: "user", content: prompt }],
+      });
+
+      document.getElementById("output").innerText =
+        result.choices[0].message.content;
+    }
+
+    loadModel();
+  </script>
+
+</body>
+</html>
