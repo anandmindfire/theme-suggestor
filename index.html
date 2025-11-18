@@ -1,13 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>WebLLM - Theme Suggestor</title>
-  <link rel="icon" href="data:,">
-
-  <!-- Correct UMD build -->
-  <script src="https://unpkg.com/@mlc-ai/web-llm/dist/umd/web-llm.min.js"></script>
-
+  <meta charset="UTF-8" />
+  <title>WebLLM Theme Suggestor</title>
+  <link rel="icon" href="data:," />
   <style>
     body { font-family: Arial; padding: 20px; background: #f4f4f4; }
     #output { white-space: pre-wrap; background: #fff; padding: 10px; border-radius: 8px; min-height: 150px; }
@@ -16,32 +12,39 @@
   </style>
 </head>
 <body>
-
   <h2>WebLLM • Theme Suggestor (0.6B Q4_K_M)</h2>
 
   <p><strong>Status:</strong> <span id="status">Loading model...</span></p>
 
-  <input id="prompt" placeholder="Ask something...">
+  <input id="prompt" placeholder="Ask something..." />
   <button onclick="runPrompt()">Run</button>
 
   <h3>Response:</h3>
   <div id="output"></div>
 
-  <script>
+  <!-- FIX: Use ESM module import -->
+  <script type="module">
+    import * as webllm from "https://esm.run/@mlc-ai/web-llm";
+
+    window.webllm = webllm; // expose globally so your functions can use it
+
     let engine;
 
     async function loadModel() {
-      document.getElementById("status").innerText = "Downloading model & initializing WebGPU...";
+      document.getElementById("status").innerText =
+        "Downloading model & initializing WebGPU...";
 
       engine = await webllm.createEngine({
-        model_url: "https://huggingface.co/anand-ai/theme-suggestor-Q4_K_M-GGUF/resolve/main/theme-suggestor-q4_k_m.gguf",
-        runtime: "webgpu"
+        model_url:
+          "https://huggingface.co/anand-ai/theme-suggestor-Q4_K_M-GGUF/resolve/main/theme-suggestor-q4_k_m.gguf",
+        runtime: "webgpu",
       });
 
-      document.getElementById("status").innerText = "Model Loaded ✔ WebGPU Ready";
+      document.getElementById("status").innerText =
+        "Model Loaded ✔ WebGPU Ready";
     }
 
-    async function runPrompt() {
+    window.runPrompt = async function () {
       const prompt = document.getElementById("prompt").value;
       if (!prompt) return alert("Enter a prompt!");
 
@@ -53,10 +56,9 @@
 
       document.getElementById("output").innerText =
         result.choices[0].message.content;
-    }
+    };
 
     loadModel();
   </script>
-
 </body>
 </html>
