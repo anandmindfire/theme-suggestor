@@ -1,64 +1,259 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>WebLLM Theme Suggestor</title>
-  <link rel="icon" href="data:," />
-  <style>
-    body { font-family: Arial; padding: 20px; background: #f4f4f4; }
-    #output { white-space: pre-wrap; background: #fff; padding: 10px; border-radius: 8px; min-height: 150px; }
-    input { padding: 10px; width: 70%; }
-    button { padding: 10px 20px; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Theme Suggestor - WebLLM</title>
+    <script type="module">
+        import { CreateMLCEngine } from "https://esm.run/@mlc-ai/web-llm";
+
+        let engine = null;
+        let isLoading = false;
+
+        const statusEl = document.getElementById('status');
+        const loadBtn = document.getElementById('loadBtn');
+        const promptInput = document.getElementById('prompt');
+        const generateBtn = document.getElementById('generateBtn');
+        const outputEl = document.getElementById('output');
+        const progressEl = document.getElementById('progress');
+
+        // Custom model configuration
+        const customModel = {
+            model: "https://huggingface.co/anand-ai/theme-suggestor-Q4_K_M-GGUF/resolve/main/theme-suggestor-q4_k_m.gguf",
+            model_id: "theme-suggestor-q4",
+            model_lib: "https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_43/Llama-3_2-1B-Instruct-q4f16_1-ctx4k_cs1k-webgpu.wasm",
+        };
+
+        async function loadModel() {
+            if (isLoading || engine) return;
+            
+            isLoading = true;
+            loadBtn.disabled = true;
+            statusEl.textContent = 'Loading model...';
+            progressEl.style.display = 'block';
+
+            try {
+                const initProgressCallback = (progress) => {
+                    const percent = Math.round(progress.progress * 100);
+                    progressEl.textContent = `${progress.text} (${percent}%)`;
+                };
+
+                engine = await CreateMLCEngine(
+                    "Llama-3.2-1B-Instruct-q4f16_1-MLC",
+                    {
+                        initProgressCallback,
+                    }
+                );
+
+                statusEl.textContent = 'Model loaded successfully!';
+                statusEl.style.color = '#10b981';
+                progressEl.style.display = 'none';
+                generateBtn.disabled = false;
+                loadBtn.textContent = 'Model Loaded ✓';
+            } catch (error) {
+                statusEl.textContent = `Error: ${error.message}`;
+                statusEl.style.color = '#ef4444';
+                loadBtn.disabled = false;
+                progressEl.style.display = 'none';
+            }
+            
+            isLoading = false;
+        }
+
+        async function generate() {
+            if (!engine) {
+                alert('Please load the model first');
+                return;
+            }
+
+            const prompt = promptInput.value.trim();
+            if (!prompt) {
+                alert('Please enter a prompt');
+                return;
+            }
+
+            generateBtn.disabled = true;
+            outputEl.textContent = 'Generating...';
+
+            try {
+                const messages = [
+                    { role: "user", content: prompt }
+                ];
+
+                let response = '';
+                const completion = await engine.chat.completions.create({
+                    messages,
+                    temperature: 0.7,
+                    max_tokens: 512,
+                    stream: true,
+                });
+
+                for await (const chunk of completion) {
+                    const content = chunk.choices[0]?.delta?.content || '';
+                    response += content;
+                    outputEl.textContent = response;
+                }
+
+            } catch (error) {
+                outputEl.textContent = `Error: ${error.message}`;
+            }
+
+            generateBtn.disabled = false;
+        }
+
+        window.addEventListener('load', () => {
+            loadBtn.addEventListener('click', loadModel);
+            generateBtn.addEventListener('click', generate);
+            
+            promptInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    generate();
+                }
+            });
+        });
+    </script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 800px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        h1 {
+            color: #1f2937;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        .subtitle {
+            color: #6b7280;
+            margin-bottom: 30px;
+        }
+
+        #status {
+            padding: 12px;
+            background: #f3f4f6;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #4b5563;
+        }
+
+        #progress {
+            padding: 8px;
+            background: #dbeafe;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            color: #1e40af;
+            display: none;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 100px;
+            margin-bottom: 15px;
+            transition: border-color 0.2s;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        #output {
+            background: #f9fafb;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 20px;
+            min-height: 200px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-size: 14px;
+            line-height: 1.6;
+            color: #1f2937;
+        }
+
+        .warning {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 12px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #92400e;
+        }
+    </style>
 </head>
 <body>
-  <h2>WebLLM • Theme Suggestor (0.6B Q4_K_M)</h2>
+    <div class="container">
+        <h1>🎨 Theme Suggestor</h1>
+        <p class="subtitle">AI-powered theme suggestions running locally in your browser</p>
+        
+        <div class="warning">
+            ⚠️ <strong>Note:</strong> This requires WebGPU support (Chrome/Edge 113+). The model will download (~640MB) on first load.
+        </div>
 
-  <p><strong>Status:</strong> <span id="status">Loading model...</span></p>
+        <div id="status">Ready to load model. Click the button below to start.</div>
+        <div id="progress"></div>
 
-  <input id="prompt" placeholder="Ask something..." />
-  <button onclick="runPrompt()">Run</button>
+        <button id="loadBtn">Load Model</button>
 
-  <h3>Response:</h3>
-  <div id="output"></div>
+        <textarea id="prompt" placeholder="Enter your prompt here... (e.g., 'Suggest a color theme for a meditation app')"></textarea>
 
-  <!-- FIX: Use ESM module import -->
-  <script type="module">
-    import * as webllm from "https://esm.run/@mlc-ai/web-llm";
+        <button id="generateBtn" disabled>Generate Theme Suggestion</button>
 
-    window.webllm = webllm; // expose globally so your functions can use it
-
-    let engine;
-
-    async function loadModel() {
-      document.getElementById("status").innerText =
-        "Downloading model & initializing WebGPU...";
-
-      engine = await webllm.createEngine({
-        model_url:
-          "https://huggingface.co/anand-ai/theme-suggestor-Q4_K_M-GGUF/resolve/main/theme-suggestor-q4_k_m.gguf",
-        runtime: "webgpu",
-      });
-
-      document.getElementById("status").innerText =
-        "Model Loaded ✔ WebGPU Ready";
-    }
-
-    window.runPrompt = async function () {
-      const prompt = document.getElementById("prompt").value;
-      if (!prompt) return alert("Enter a prompt!");
-
-      document.getElementById("output").innerText = "Generating...";
-
-      const result = await engine.chat.completions.create({
-        messages: [{ role: "user", content: prompt }],
-      });
-
-      document.getElementById("output").innerText =
-        result.choices[0].message.content;
-    };
-
-    loadModel();
-  </script>
+        <div id="output">Your generated theme will appear here...</div>
+    </div>
 </body>
 </html>
