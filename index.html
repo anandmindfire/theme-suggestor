@@ -12,44 +12,68 @@
 
         const statusEl = document.getElementById('status');
         const loadBtn = document.getElementById('loadBtn');
+        const modelSelect = document.getElementById('modelSelect');
         const promptInput = document.getElementById('prompt');
         const generateBtn = document.getElementById('generateBtn');
         const outputEl = document.getElementById('output');
         const progressEl = document.getElementById('progress');
+        const progressBar = document.getElementById('progressBar');
 
         async function loadModel() {
             if (isLoading || engine) return;
             
             isLoading = true;
             loadBtn.disabled = true;
-            statusEl.textContent = 'Loading model...';
+            modelSelect.disabled = true;
+            statusEl.textContent = 'Initializing model...';
             progressEl.style.display = 'block';
 
             try {
+                const selectedModel = modelSelect.value;
+                
                 const initProgressCallback = (progress) => {
+                    console.log('Progress:', progress);
                     const percent = Math.round(progress.progress * 100);
+                    progressBar.style.width = percent + '%';
                     progressEl.textContent = `${progress.text} (${percent}%)`;
+                    
+                    // Update status for different stages
+                    if (progress.text.includes('Loading')) {
+                        statusEl.textContent = 'Downloading model files...';
+                    } else if (progress.text.includes('Initializing')) {
+                        statusEl.textContent = 'Initializing WebGPU...';
+                    }
                 };
 
-                // Using a reliable built-in WebLLM model
-                // Options: "Llama-3.2-1B-Instruct-q4f16_1-MLC", "Phi-3.5-mini-instruct-q4f16_1-MLC", "Qwen2.5-0.5B-Instruct-q4f16_1-MLC"
-                engine = await CreateMLCEngine(
-                    "Phi-3.5-mini-instruct-q4f16_1-MLC",
-                    {
-                        initProgressCallback,
-                    }
-                );
+                console.log('Creating engine with model:', selectedModel);
+                
+                engine = await CreateMLCEngine(selectedModel, {
+                    initProgressCallback,
+                    logLevel: "INFO"
+                });
 
-                statusEl.textContent = 'Model loaded successfully!';
+                statusEl.textContent = '✓ Model loaded successfully! Ready to generate.';
                 statusEl.style.color = '#10b981';
                 progressEl.style.display = 'none';
                 generateBtn.disabled = false;
                 loadBtn.textContent = 'Model Loaded ✓';
+                loadBtn.style.background = '#10b981';
+                
+                console.log('Engine created successfully');
             } catch (error) {
-                statusEl.textContent = `Error: ${error.message}`;
+                console.error('Full error:', error);
+                statusEl.textContent = `❌ Error: ${error.message}`;
                 statusEl.style.color = '#ef4444';
                 loadBtn.disabled = false;
+                modelSelect.disabled = false;
                 progressEl.style.display = 'none';
+                
+                // Provide helpful error messages
+                if (error.message.includes('GPU')) {
+                    statusEl.textContent += ' (WebGPU may not be supported in your browser)';
+                } else if (error.message.includes('memory')) {
+                    statusEl.textContent += ' (Try closing other tabs to free up memory)';
+                }
             }
             
             isLoading = false;
@@ -68,32 +92,44 @@
             }
 
             generateBtn.disabled = true;
-            outputEl.textContent = 'Generating...';
+            generateBtn.textContent = 'Generating...';
+            outputEl.textContent = '';
 
             try {
                 const messages = [
-                    { role: "user", content: prompt }
+                    { 
+                        role: "system", 
+                        content: "You are a helpful assistant that suggests creative and appealing color themes and design ideas." 
+                    },
+                    { 
+                        role: "user", 
+                        content: prompt 
+                    }
                 ];
 
-                let response = '';
+                let fullResponse = '';
                 const completion = await engine.chat.completions.create({
                     messages,
-                    temperature: 0.7,
+                    temperature: 0.8,
                     max_tokens: 512,
                     stream: true,
                 });
 
                 for await (const chunk of completion) {
                     const content = chunk.choices[0]?.delta?.content || '';
-                    response += content;
-                    outputEl.textContent = response;
+                    fullResponse += content;
+                    outputEl.textContent = fullResponse;
+                    outputEl.scrollTop = outputEl.scrollHeight;
                 }
 
+                console.log('Generation complete');
             } catch (error) {
-                outputEl.textContent = `Error: ${error.message}`;
+                console.error('Generation error:', error);
+                outputEl.textContent = `❌ Error during generation: ${error.message}`;
             }
 
             generateBtn.disabled = false;
+            generateBtn.textContent = 'Generate Theme Suggestion';
         }
 
         window.addEventListener('load', () => {
@@ -106,6 +142,13 @@
                     generate();
                 }
             });
+
+            // Check WebGPU support
+            if (!navigator.gpu) {
+                statusEl.textContent = '⚠️ WebGPU not supported in this browser. Try Chrome/Edge 113+';
+                statusEl.style.color = '#ef4444';
+                loadBtn.disabled = true;
+            }
         });
     </script>
     <style>
@@ -152,16 +195,49 @@
             margin-bottom: 20px;
             font-size: 14px;
             color: #4b5563;
+            font-weight: 500;
         }
 
         #progress {
-            padding: 8px;
+            padding: 8px 12px;
             background: #dbeafe;
             border-radius: 6px;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
             font-size: 13px;
             color: #1e40af;
             display: none;
+        }
+
+        .progress-container {
+            width: 100%;
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+
+        #progressBar {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-bottom: 15px;
+            background: white;
+            cursor: pointer;
+        }
+
+        select:focus {
+            outline: none;
+            border-color: #667eea;
         }
 
         button {
@@ -186,6 +262,7 @@
         button:disabled {
             opacity: 0.6;
             cursor: not-allowed;
+            transform: none;
         }
 
         textarea {
@@ -212,6 +289,8 @@
             border-radius: 8px;
             padding: 20px;
             min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
             white-space: pre-wrap;
             word-wrap: break-word;
             font-size: 14px;
@@ -228,6 +307,24 @@
             font-size: 13px;
             color: #92400e;
         }
+
+        .info-box {
+            background: #eff6ff;
+            border-left: 4px solid #3b82f6;
+            padding: 12px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #1e40af;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #374151;
+            font-weight: 600;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
@@ -236,15 +333,34 @@
         <p class="subtitle">AI-powered theme suggestions running locally in your browser</p>
         
         <div class="warning">
-            ⚠️ <strong>Note:</strong> This requires WebGPU support (Chrome/Edge 113+). The model will download (~640MB) on first load.
+            ⚠️ <strong>Requirements:</strong> Chrome/Edge 113+ with WebGPU enabled. First load will download ~200-600MB depending on model choice.
         </div>
 
-        <div id="status">Ready to load model. Click the button below to start.</div>
-        <div id="progress"></div>
+        <div class="info-box">
+            💡 <strong>Tip:</strong> Start with Qwen2.5-0.5B (smallest/fastest). Close other tabs if you encounter memory errors.
+        </div>
+
+        <div id="status">Ready to load model. Select a model and click Load Model.</div>
+        
+        <div id="progress">
+            Initializing...
+            <div class="progress-container">
+                <div id="progressBar"></div>
+            </div>
+        </div>
+
+        <label for="modelSelect">Choose Model:</label>
+        <select id="modelSelect">
+            <option value="Qwen2.5-0.5B-Instruct-q4f16_1-MLC">Qwen2.5-0.5B (Fastest, ~200MB)</option>
+            <option value="Qwen2.5-1.5B-Instruct-q4f16_1-MLC">Qwen2.5-1.5B (Balanced, ~400MB)</option>
+            <option value="Phi-3.5-mini-instruct-q4f16_1-MLC">Phi-3.5-mini (Quality, ~600MB)</option>
+            <option value="Llama-3.2-1B-Instruct-q4f16_1-MLC">Llama-3.2-1B (Alternative, ~500MB)</option>
+        </select>
 
         <button id="loadBtn">Load Model</button>
 
-        <textarea id="prompt" placeholder="Enter your prompt here... (e.g., 'Suggest a color theme for a meditation app')"></textarea>
+        <label for="prompt">Your Prompt:</label>
+        <textarea id="prompt" placeholder="Example: Suggest a modern color theme for a meditation and wellness mobile app. Include primary, secondary, and accent colors with hex codes.">Suggest a color theme for a meditation app</textarea>
 
         <button id="generateBtn" disabled>Generate Theme Suggestion</button>
 
