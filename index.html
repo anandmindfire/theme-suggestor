@@ -17,13 +17,6 @@
         const outputEl = document.getElementById('output');
         const progressEl = document.getElementById('progress');
 
-        // Custom model configuration
-        const customModel = {
-            model: "https://huggingface.co/anand-ai/theme-suggestor-Q4_K_M-GGUF/resolve/main/theme-suggestor-q4_k_m.gguf",
-            model_id: "theme-suggestor-q4",
-            model_lib: "https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_43/Llama-3_2-1B-Instruct-q4f16_1-ctx4k_cs1k-webgpu.wasm",
-        };
-
         async function loadModel() {
             if (isLoading || engine) return;
             
@@ -38,8 +31,10 @@
                     progressEl.textContent = `${progress.text} (${percent}%)`;
                 };
 
+                // Using a reliable built-in WebLLM model
+                // Options: "Llama-3.2-1B-Instruct-q4f16_1-MLC", "Phi-3.5-mini-instruct-q4f16_1-MLC", "Qwen2.5-0.5B-Instruct-q4f16_1-MLC"
                 engine = await CreateMLCEngine(
-                    "Llama-3.2-1B-Instruct-q4f16_1-MLC",
+                    "Phi-3.5-mini-instruct-q4f16_1-MLC",
                     {
                         initProgressCallback,
                     }
