@@ -3,85 +3,113 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Theme Suggestor - WebLLM</title>
+    <title>Theme Suggestor - GGUF Direct</title>
     <script type="module">
-        import { CreateMLCEngine } from "https://esm.run/@mlc-ai/web-llm";
-
-        let engine = null;
-        let isLoading = false;
+        let llamaCpp = null;
+        let model = null;
+        let ctx = null;
 
         const statusEl = document.getElementById('status');
         const loadBtn = document.getElementById('loadBtn');
-        const modelSelect = document.getElementById('modelSelect');
+        const modelUrlInput = document.getElementById('modelUrl');
         const promptInput = document.getElementById('prompt');
         const generateBtn = document.getElementById('generateBtn');
         const outputEl = document.getElementById('output');
         const progressEl = document.getElementById('progress');
-        const progressBar = document.getElementById('progressBar');
+
+        async function loadLlamaCpp() {
+            statusEl.textContent = 'Loading llama.cpp WASM...';
+            
+            try {
+                // Import llama.cpp WASM
+                const { LlamaCpp } = await import('https://cdn.jsdelivr.net/npm/@lmstudio-ai/llama-cpp-wasm@0.0.9/+esm');
+                
+                llamaCpp = await LlamaCpp.create();
+                statusEl.textContent = 'llama.cpp WASM loaded! Ready to load model.';
+                statusEl.style.color = '#10b981';
+                return true;
+            } catch (error) {
+                statusEl.textContent = `Error loading llama.cpp: ${error.message}`;
+                statusEl.style.color = '#ef4444';
+                return false;
+            }
+        }
 
         async function loadModel() {
-            if (isLoading || engine) return;
-            
-            isLoading = true;
+            if (!llamaCpp) {
+                const success = await loadLlamaCpp();
+                if (!success) return;
+            }
+
+            const modelUrl = modelUrlInput.value.trim();
+            if (!modelUrl) {
+                alert('Please enter a model URL');
+                return;
+            }
+
             loadBtn.disabled = true;
-            modelSelect.disabled = true;
-            statusEl.textContent = 'Initializing model...';
+            statusEl.textContent = 'Downloading model...';
             progressEl.style.display = 'block';
+            progressEl.textContent = 'Starting download...';
 
             try {
-                const selectedModel = modelSelect.value;
-                
-                const initProgressCallback = (progress) => {
-                    console.log('Progress:', progress);
-                    const percent = Math.round(progress.progress * 100);
-                    progressBar.style.width = percent + '%';
-                    progressEl.textContent = `${progress.text} (${percent}%)`;
-                    
-                    // Update status for different stages
-                    if (progress.text.includes('Loading')) {
-                        statusEl.textContent = 'Downloading model files...';
-                    } else if (progress.text.includes('Initializing')) {
-                        statusEl.textContent = 'Initializing WebGPU...';
-                    }
-                };
+                // Download the model
+                const response = await fetch(modelUrl);
+                const contentLength = response.headers.get('content-length');
+                const total = parseInt(contentLength, 10);
+                let loaded = 0;
 
-                console.log('Creating engine with model:', selectedModel);
-                
-                engine = await CreateMLCEngine(selectedModel, {
-                    initProgressCallback,
-                    logLevel: "INFO"
+                const reader = response.body.getReader();
+                const chunks = [];
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    chunks.push(value);
+                    loaded += value.length;
+
+                    const percent = Math.round((loaded / total) * 100);
+                    progressEl.textContent = `Downloading: ${(loaded / 1024 / 1024).toFixed(1)}MB / ${(total / 1024 / 1024).toFixed(1)}MB (${percent}%)`;
+                }
+
+                // Combine chunks
+                const modelData = new Uint8Array(loaded);
+                let position = 0;
+                for (const chunk of chunks) {
+                    modelData.set(chunk, position);
+                    position += chunk.length;
+                }
+
+                statusEl.textContent = 'Loading model into memory...';
+                progressEl.textContent = 'Initializing model...';
+
+                // Load the model
+                model = await llamaCpp.loadModel(modelData, {
+                    n_ctx: 2048,
+                    n_batch: 512,
+                    n_threads: 4
                 });
 
-                statusEl.textContent = '✓ Model loaded successfully! Ready to generate.';
+                statusEl.textContent = '✓ Model loaded successfully!';
                 statusEl.style.color = '#10b981';
                 progressEl.style.display = 'none';
                 generateBtn.disabled = false;
                 loadBtn.textContent = 'Model Loaded ✓';
                 loadBtn.style.background = '#10b981';
-                
-                console.log('Engine created successfully');
+
             } catch (error) {
-                console.error('Full error:', error);
+                console.error('Load error:', error);
                 statusEl.textContent = `❌ Error: ${error.message}`;
                 statusEl.style.color = '#ef4444';
                 loadBtn.disabled = false;
-                modelSelect.disabled = false;
                 progressEl.style.display = 'none';
-                
-                // Provide helpful error messages
-                if (error.message.includes('GPU')) {
-                    statusEl.textContent += ' (WebGPU may not be supported in your browser)';
-                } else if (error.message.includes('memory')) {
-                    statusEl.textContent += ' (Try closing other tabs to free up memory)';
-                }
             }
-            
-            isLoading = false;
         }
 
         async function generate() {
-            if (!engine) {
-                alert('Please load the model first');
+            if (!model) {
+                alert('Please load a model first');
                 return;
             }
 
@@ -96,36 +124,26 @@
             outputEl.textContent = '';
 
             try {
-                const messages = [
-                    { 
-                        role: "system", 
-                        content: "You are a helpful assistant that suggests creative and appealing color themes and design ideas." 
-                    },
-                    { 
-                        role: "user", 
-                        content: prompt 
-                    }
-                ];
+                const fullPrompt = `<|system|>You are a helpful assistant that suggests creative color themes and design ideas.</|system|>
+<|user|>${prompt}</|user|>
+<|assistant|>`;
 
-                let fullResponse = '';
-                const completion = await engine.chat.completions.create({
-                    messages,
-                    temperature: 0.8,
+                let response = '';
+                
+                await model.generate(fullPrompt, {
                     max_tokens: 512,
-                    stream: true,
+                    temperature: 0.7,
+                    top_p: 0.9,
+                    onToken: (token) => {
+                        response += token;
+                        outputEl.textContent = response;
+                        outputEl.scrollTop = outputEl.scrollHeight;
+                    }
                 });
 
-                for await (const chunk of completion) {
-                    const content = chunk.choices[0]?.delta?.content || '';
-                    fullResponse += content;
-                    outputEl.textContent = fullResponse;
-                    outputEl.scrollTop = outputEl.scrollHeight;
-                }
-
-                console.log('Generation complete');
             } catch (error) {
                 console.error('Generation error:', error);
-                outputEl.textContent = `❌ Error during generation: ${error.message}`;
+                outputEl.textContent = `❌ Error: ${error.message}`;
             }
 
             generateBtn.disabled = false;
@@ -142,13 +160,6 @@
                     generate();
                 }
             });
-
-            // Check WebGPU support
-            if (!navigator.gpu) {
-                statusEl.textContent = '⚠️ WebGPU not supported in this browser. Try Chrome/Edge 113+';
-                statusEl.style.color = '#ef4444';
-                loadBtn.disabled = true;
-            }
         });
     </script>
     <style>
@@ -159,12 +170,9 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
             padding: 20px;
         }
 
@@ -172,8 +180,8 @@
             background: white;
             border-radius: 16px;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            max-width: 800px;
-            width: 100%;
+            max-width: 900px;
+            margin: 0 auto;
             padding: 40px;
         }
 
@@ -199,7 +207,7 @@
         }
 
         #progress {
-            padding: 8px 12px;
+            padding: 10px 12px;
             background: #dbeafe;
             border-radius: 6px;
             margin-bottom: 15px;
@@ -208,36 +216,33 @@
             display: none;
         }
 
-        .progress-container {
-            width: 100%;
-            height: 8px;
-            background: #e5e7eb;
-            border-radius: 4px;
-            overflow: hidden;
-            margin-top: 8px;
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #374151;
+            font-weight: 600;
+            font-size: 14px;
         }
 
-        #progressBar {
-            height: 100%;
-            background: linear-gradient(90deg, #667eea, #764ba2);
-            width: 0%;
-            transition: width 0.3s ease;
-        }
-
-        select {
+        input[type="text"], textarea {
             width: 100%;
             padding: 12px;
             border: 2px solid #e5e7eb;
             border-radius: 8px;
             font-size: 14px;
+            font-family: inherit;
             margin-bottom: 15px;
-            background: white;
-            cursor: pointer;
+            transition: border-color 0.2s;
         }
 
-        select:focus {
+        input[type="text"]:focus, textarea:focus {
             outline: none;
             border-color: #667eea;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 100px;
         }
 
         button {
@@ -265,24 +270,6 @@
             transform: none;
         }
 
-        textarea {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #e5e7eb;
-            border-radius: 8px;
-            font-size: 14px;
-            font-family: inherit;
-            resize: vertical;
-            min-height: 100px;
-            margin-bottom: 15px;
-            transition: border-color 0.2s;
-        }
-
-        textarea:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
         #output {
             background: #f9fafb;
             border: 2px solid #e5e7eb;
@@ -298,6 +285,17 @@
             color: #1f2937;
         }
 
+        .info {
+            background: #eff6ff;
+            border-left: 4px solid #3b82f6;
+            padding: 12px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #1e40af;
+            line-height: 1.5;
+        }
+
         .warning {
             background: #fef3c7;
             border-left: 4px solid #f59e0b;
@@ -308,59 +306,43 @@
             color: #92400e;
         }
 
-        .info-box {
-            background: #eff6ff;
-            border-left: 4px solid #3b82f6;
-            padding: 12px;
-            margin-bottom: 20px;
-            border-radius: 4px;
-            font-size: 13px;
-            color: #1e40af;
-        }
-
-        label {
-            display: block;
-            margin-bottom: 8px;
-            color: #374151;
-            font-weight: 600;
-            font-size: 14px;
+        code {
+            background: #f3f4f6;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🎨 Theme Suggestor</h1>
-        <p class="subtitle">AI-powered theme suggestions running locally in your browser</p>
+        <h1>🎨 Theme Suggestor - GGUF Direct</h1>
+        <p class="subtitle">Load and run GGUF models directly in your browser</p>
         
+        <div class="info">
+            💡 <strong>This version uses llama.cpp WASM</strong> which can load GGUF files directly! No conversion needed.
+        </div>
+
         <div class="warning">
-            ⚠️ <strong>Requirements:</strong> Chrome/Edge 113+ with WebGPU enabled. First load will download ~200-600MB depending on model choice.
+            ⚠️ <strong>Note:</strong> Model will download in full. For a ~640MB model, this will take a few minutes. Make sure you have stable internet.
         </div>
 
-        <div class="info-box">
-            💡 <strong>Tip:</strong> Start with Qwen2.5-0.5B (smallest/fastest). Close other tabs if you encounter memory errors.
-        </div>
+        <div id="status">Ready to load. Enter your model URL below.</div>
+        <div id="progress"></div>
 
-        <div id="status">Ready to load model. Select a model and click Load Model.</div>
-        
-        <div id="progress">
-            Initializing...
-            <div class="progress-container">
-                <div id="progressBar"></div>
-            </div>
-        </div>
-
-        <label for="modelSelect">Choose Model:</label>
-        <select id="modelSelect">
-            <option value="Qwen2.5-0.5B-Instruct-q4f16_1-MLC">Qwen2.5-0.5B (Fastest, ~200MB)</option>
-            <option value="Qwen2.5-1.5B-Instruct-q4f16_1-MLC">Qwen2.5-1.5B (Balanced, ~400MB)</option>
-            <option value="Phi-3.5-mini-instruct-q4f16_1-MLC">Phi-3.5-mini (Quality, ~600MB)</option>
-            <option value="Llama-3.2-1B-Instruct-q4f16_1-MLC">Llama-3.2-1B (Alternative, ~500MB)</option>
-        </select>
+        <label for="modelUrl">Model URL (Direct link to .gguf file):</label>
+        <input 
+            type="text" 
+            id="modelUrl" 
+            value="https://huggingface.co/anand-ai/theme-suggestor-Q4_K_M-GGUF/resolve/main/theme-suggestor-q4_k_m.gguf"
+            placeholder="https://huggingface.co/..."
+        />
 
         <button id="loadBtn">Load Model</button>
 
         <label for="prompt">Your Prompt:</label>
-        <textarea id="prompt" placeholder="Example: Suggest a modern color theme for a meditation and wellness mobile app. Include primary, secondary, and accent colors with hex codes.">Suggest a color theme for a meditation app</textarea>
+        <textarea id="prompt" placeholder="Example: Suggest a modern color theme for a meditation app with hex codes">Suggest a color theme for a meditation app</textarea>
 
         <button id="generateBtn" disabled>Generate Theme Suggestion</button>
 
