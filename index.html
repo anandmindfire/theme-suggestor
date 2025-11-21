@@ -451,7 +451,10 @@
                     'anand-ai/theme-suggester-onnx-int8',
                     {
                         device: 'webgpu',
-                        dtype: 'q8', // INT8 quantized
+                        dtype: 'q8',
+                        config: {
+                            model_type: 'qwen2'
+                        }
                     }
                 );
                 
@@ -485,13 +488,17 @@
                 const startTime = performance.now();
                 let tokenCount = 0;
                 
-                // Create a proper chat format message
-                const messages = [
-                    { role: "user", content: input }
-                ];
+                // Format the prompt for Qwen2.5 instruction following
+          const prompt = `<|system|>
+            You are an expert website theme designer AI. Create a complete, modern, professional theme for a healthcare website and give the entire answer only in clear, detailed bullet points. Include a full color palette with color names, HEX codes, RGB values, and a short note on where each color is used; list 2–3 fonts with their purpose and style; describe layout guidelines for header, navigation, hero section, content sections, footer, spacing, and grid rules; provide primary and secondary CTA text options with notes on tone; and include a short text-based moodboard describing emotions, imagery style, icon style, and UI style. Keep all answers concise, descriptive, and easy for a small model to follow.
+            <|user|>
+            ${input}
+            <|assistant|>
+            `;
+
                 
                 // Generate with streaming
-                const result = await generator(messages, {
+                const result = await generator(prompt, {
                     max_new_tokens: 256,
                     temperature: 0.7,
                     top_p: 0.9,
@@ -502,8 +509,10 @@
                 const endTime = performance.now();
                 const inferenceTime = ((endTime - startTime) / 1000).toFixed(2);
                 
-                // Extract the generated text
-                const generatedText = result[0].generated_text[result[0].generated_text.length - 1].content;
+                // Extract the generated text (remove the prompt part)
+                let generatedText = result[0].generated_text.replace(prompt, '').trim();
+                // Remove any trailing special tokens
+                generatedText = generatedText.split('<|im_end|>')[0].trim();
                 tokenCount = generatedText.split(/\s+/).length;
                 const tokensPerSec = (tokenCount / parseFloat(inferenceTime)).toFixed(1);
                 
