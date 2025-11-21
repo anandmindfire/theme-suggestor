@@ -1,214 +1,556 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Theme Suggester – ONNX WebGPU</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/onnxruntime-web/1.18.0/ort.webgpu.min.js"></script>
-  <style>
-    * { margin:0; padding:0; box-sizing:border-box; }
-    body {
-      font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
-      min-height:100vh; display:flex; align-items:center; justify-content:center;
-      padding:20px;
-    }
-    .container {
-      background:white; border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,0.3);
-      max-width:800px; width:100%; padding:40px;
-    }
-    h1 { color:#333; margin-bottom:10px; font-size:2em; }
-    .subtitle { color:#666; margin-bottom:20px; font-size:0.9em; }
-    .status { padding:15px; border-radius:8px; margin-bottom:20px; font-weight:500;
-      display:flex; align-items:center; gap:10px; }
-    .status.info { background:#e3f2fd; color:#1976d2; border-left:4px solid #1976d2; }
-    .status.success { background:#e8f5e9; color:#388e3c; border-left:4px solid #388e3c; }
-    .status.error { background:#ffebee; color:#c62828; border-left:4px solid #c62828; }
-    .spinner {
-      border:3px solid #f3f3f3; border-top:3px solid #667eea; border-radius:50%;
-      width:20px; height:20px; animation:spin 1s linear infinite;
-    }
-    @keyframes spin { 0%{transform:rotate(0deg);} 100%{transform:rotate(360deg);} }
-    textarea {
-      width:100%; padding:12px; border:2px solid #ddd; border-radius:8px;
-      font-size:14px; min-height:100px; resize:vertical; margin-bottom:20px;
-    }
-    button {
-      background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
-      color:white; border:none; padding:14px 32px; border-radius:8px;
-      font-size:16px; cursor:pointer; width:100%;
-    }
-    .output { margin-top:20px; padding:20px; background:#f7f7f7;
-      border-radius:8px; display:none; white-space:pre-wrap; }
-  </style>
-</head>
-
-<body>
-<div class="container">
-  <h1>🎨 Theme Suggester</h1>
-  <p class="subtitle">Qwen2.5 – ONNX INT8 – WebGPU Inference</p>
-
-  <div id="status" class="status info">
-    <div class="spinner"></div>
-    <span>Checking WebGPU support...</span>
-  </div>
-
-  <textarea id="input-text" placeholder="Example: Suggest a theme for a healthcare website..."></textarea>
-  <button id="run-btn" disabled>Run Inference</button>
-
-  <div id="output" class="output"></div>
-</div>
-
-<script type="module">
-  import { AutoTokenizer } from "https://cdn.jsdelivr.net/npm/@xenova/transformers@3.2.0/dist/transformers.esm.js";
-
-  const modelUrl =
-    "https://huggingface.co/anand-ai/theme-suggester-onnx-int8/resolve/main/model_quantized.onnx";
-
-  const tokenizerBase =
-    "https://huggingface.co/anand-ai/theme-suggester-onnx-int8/resolve/main/";
-
-  let tokenizer;
-  let session;
-
-  const statusEl = document.getElementById("status");
-  const runBtn = document.getElementById("run-btn");
-  const outputEl = document.getElementById("output");
-
-  function setStatus(msg, type = "info", spinner = false) {
-    statusEl.className = `status ${type}`;
-    statusEl.innerHTML = spinner
-      ? `<div class="spinner"></div><span>${msg}</span>`
-      : `<span>${msg}</span>`;
-  }
-
-  async function checkWebGPU() {
-    if (!navigator.gpu) {
-      setStatus("❌ WebGPU not supported. Use Chrome/Edge 113+.", "error");
-      return false;
-    }
-    setStatus("✓ WebGPU supported!", "success");
-    return true;
-  }
-
-  async function loadTokenizer() {
-    setStatus("Loading tokenizer...", "info", true);
-    tokenizer = await AutoTokenizer.fromPretrained(tokenizerBase);
-    setStatus("✓ Tokenizer loaded", "success");
-  }
-
-  async function loadModel() {
-    setStatus("Loading ONNX Model…", "info", true);
-
-    ort.env.wasm.numThreads = 1;
-
-    session = await ort.InferenceSession.create(modelUrl, {
-      executionProviders: ["webgpu"],
-      graphOptimizationLevel: "all"
-    });
-
-    console.log("Inputs:", session.inputNames);
-    console.log("Outputs:", session.outputNames);
-
-    setStatus("✓ Model loaded!", "success");
-    runBtn.disabled = false;
-  }
-
-  function createInitialKV() {
-    const layers = 24;
-    const num_kv_heads = 2;
-    const head_dim = 64;
-    const b = 1;
-    const past = 0;
-
-    const kv = {};
-    for (let i = 0; i < layers; i++) {
-      kv[`past_key_values.${i}.key`] =
-        new ort.Tensor("float32", new Float32Array(b * num_kv_heads * past * head_dim),
-          [1, num_kv_heads, past, head_dim]);
-
-      kv[`past_key_values.${i}.value`] =
-        new ort.Tensor("float32", new Float32Array(b * num_kv_heads * past * head_dim),
-          [1, num_kv_heads, past, head_dim]);
-    }
-    return kv;
-  }
-
-  async function generate(prompt, maxNewTokens = 80) {
-    outputEl.style.display = "none";
-    setStatus("Running inference...", "info", true);
-
-    const encoded = await tokenizer.encode(prompt);
-    let inputIds = encoded.ids.map(i => BigInt(i));
-
-    let pos = 0n;
-    let kv = createInitialKV();
-
-    const generated = [...inputIds];
-
-    for (let step = 0; step < maxNewTokens; step++) {
-      const inputTensor = new ort.Tensor("int64",
-        BigInt64Array.from(inputIds), [1, inputIds.length]);
-
-      const attnTensor = new ort.Tensor("int64",
-        BigInt64Array.from(inputIds.map(_ => 1n)), [1, inputIds.length]);
-
-      const posTensor = new ort.Tensor("int64",
-        BigInt64Array.from(inputIds.map(() => pos++)), [1, inputIds.length]);
-
-      const feeds = {
-        input_ids: inputTensor,
-        attention_mask: attnTensor,
-        position_ids: posTensor,
-        ...kv
-      };
-
-      const out = await session.run(feeds);
-      const logits = out.logits.data;
-
-      const vocab = logits.length / inputIds.length;
-      const last = logits.slice((inputIds.length - 1) * vocab);
-
-      let maxVal = last[0], maxIdx = 0;
-      for (let i = 1; i < last.length; i++) {
-        if (last[i] > maxVal) {
-          maxVal = last[i];
-          maxIdx = i;
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Theme Suggester - WebGPU Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
-      }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 80px rgba(0,0,0,0.3);
+            max-width: 900px;
+            width: 100%;
+            padding: 40px;
+            animation: fadeIn 0.5s ease;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2.2em;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1em;
+            line-height: 1.5;
+        }
+        
+        .status {
+            padding: 16px;
+            border-radius: 10px;
+            margin-bottom: 24px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.3s ease;
+        }
+        
+        .status.info {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            color: #1565c0;
+            border-left: 4px solid #1976d2;
+        }
+        
+        .status.success {
+            background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+            color: #2e7d32;
+            border-left: 4px solid #388e3c;
+        }
+        
+        .status.error {
+            background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%);
+            color: #c62828;
+            border-left: 4px solid #d32f2f;
+        }
+        
+        .status.warning {
+            background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+            color: #ef6c00;
+            border-left: 4px solid #f57c00;
+        }
+        
+        .spinner {
+            border: 3px solid rgba(255,255,255,0.3);
+            border-top: 3px solid currentColor;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 0.8s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .model-info {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 24px;
+            font-size: 0.9em;
+            border: 2px solid #dee2e6;
+        }
+        
+        .model-info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+        }
+        
+        .model-info-item {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .model-info-label {
+            color: #666;
+            font-size: 0.85em;
+            margin-bottom: 4px;
+        }
+        
+        .model-info-value {
+            color: #333;
+            font-weight: 600;
+        }
+        
+        .input-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            color: #555;
+            font-weight: 600;
+            margin-bottom: 10px;
+            font-size: 0.95em;
+        }
+        
+        textarea {
+            width: 100%;
+            padding: 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            font-size: 15px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 120px;
+            transition: all 0.3s ease;
+            line-height: 1.5;
+        }
+        
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .controls {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 16px 32px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4);
+        }
+        
+        button:active:not(:disabled) {
+            transform: translateY(0);
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        button.secondary {
+            background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+        }
+        
+        button.secondary:hover:not(:disabled) {
+            box-shadow: 0 8px 24px rgba(108, 117, 125, 0.4);
+        }
+        
+        .output-section {
+            margin-top: 24px;
+        }
+        
+        .output {
+            padding: 24px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 12px;
+            border: 2px solid #dee2e6;
+            display: none;
+            animation: slideIn 0.4s ease;
+        }
+        
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .output.show {
+            display: block;
+        }
+        
+        .output h3 {
+            color: #333;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .output-content {
+            color: #444;
+            line-height: 1.8;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+        }
+        
+        .metrics {
+            display: flex;
+            gap: 16px;
+            margin-top: 16px;
+            flex-wrap: wrap;
+        }
+        
+        .metric {
+            background: white;
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+            flex: 1;
+            min-width: 120px;
+        }
+        
+        .metric-label {
+            font-size: 0.8em;
+            color: #666;
+            margin-bottom: 4px;
+        }
+        
+        .metric-value {
+            font-size: 1.2em;
+            font-weight: 700;
+            color: #667eea;
+        }
+        
+        .examples {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+        
+        .example-btn {
+            padding: 8px 16px;
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 0.85em;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            color: #555;
+        }
+        
+        .example-btn:hover {
+            border-color: #667eea;
+            color: #667eea;
+            transform: translateY(-1px);
+        }
+        
+        @media (max-width: 600px) {
+            .container {
+                padding: 24px;
+            }
+            
+            h1 {
+                font-size: 1.6em;
+            }
+            
+            .controls {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎨 Theme Suggester AI</h1>
+        <p class="subtitle">
+            Generate creative theme suggestions using a fine-tuned Qwen2.5 model running entirely in your browser with WebGPU acceleration. 
+            No server required, complete privacy!
+        </p>
+        
+        <div id="status" class="status info">
+            <div class="spinner"></div>
+            <span>Initializing WebGPU...</span>
+        </div>
+        
+        <div class="model-info">
+            <div class="model-info-grid">
+                <div class="model-info-item">
+                    <span class="model-info-label">Model</span>
+                    <span class="model-info-value">Qwen2.5-0.5B-Instruct</span>
+                </div>
+                <div class="model-info-item">
+                    <span class="model-info-label">Format</span>
+                    <span class="model-info-value">ONNX INT8</span>
+                </div>
+                <div class="model-info-item">
+                    <span class="model-info-label">Training Data</span>
+                    <span class="model-info-value">20k Samples</span>
+                </div>
+                <div class="model-info-item">
+                    <span class="model-info-label">Backend</span>
+                    <span class="model-info-value">WebGPU</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="input-group">
+            <label for="input-text">💭 Enter your prompt:</label>
+            <textarea 
+                id="input-text" 
+                placeholder="Example: Suggest a theme for a modern tech startup website focused on AI products..."
+            ></textarea>
+            <div class="examples">
+                <button class="example-btn" data-example="Suggest a theme for a coffee shop website">☕ Coffee Shop</button>
+                <button class="example-btn" data-example="What theme would work for a fitness app?">💪 Fitness App</button>
+                <button class="example-btn" data-example="Theme ideas for an eco-friendly brand">🌱 Eco Brand</button>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button id="run-btn" disabled>
+                <span>▶</span> Generate Theme
+            </button>
+            <button id="stop-btn" class="secondary" disabled style="display: none;">
+                <span>⏹</span> Stop
+            </button>
+        </div>
+        
+        <div class="output-section">
+            <div id="output" class="output">
+                <h3>✨ Generated Theme:</h3>
+                <div class="output-content" id="output-content"></div>
+                <div class="metrics">
+                    <div class="metric">
+                        <div class="metric-label">Inference Time</div>
+                        <div class="metric-value" id="inference-time">-</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Tokens Generated</div>
+                        <div class="metric-value" id="tokens-generated">-</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Tokens/Second</div>
+                        <div class="metric-value" id="tokens-per-sec">-</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
-      const nextTok = BigInt(maxIdx);
-      generated.push(nextTok);
-
-      if (nextTok === BigInt(151645)) break; // eos
-
-      inputIds = [nextTok];
-
-      // Update KV
-      for (let i = 0; i < 24; i++) {
-        kv[`present.${i}.key`] = out[`present.${i}.key`];
-        kv[`present.${i}.value`] = out[`present.${i}.value`];
-      }
-    }
-
-    const decoded = await tokenizer.decode(generated.map(n => Number(n)));
-    setStatus("✓ Done!", "success");
-    outputEl.textContent = decoded;
-    outputEl.style.display = "block";
-  }
-
-  document.getElementById("run-btn").addEventListener("click", () => {
-    const text = document.getElementById("input-text").value.trim();
-    if (!text) return setStatus("⚠ Enter a prompt", "warning");
-    generate(text);
-  });
-
-  (async () => {
-    if (await checkWebGPU()) {
-      await loadTokenizer();
-      await loadModel();
-    }
-  })();
-</script>
+    <script type="module">
+        import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.1.2';
+        
+        // Configure environment
+        env.allowLocalModels = false;
+        env.allowRemoteModels = true;
+        
+        let generator = null;
+        let isGenerating = false;
+        
+        const statusEl = document.getElementById('status');
+        const runBtn = document.getElementById('run-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const inputText = document.getElementById('input-text');
+        const outputEl = document.getElementById('output');
+        const outputContent = document.getElementById('output-content');
+        const inferenceTimeEl = document.getElementById('inference-time');
+        const tokensGeneratedEl = document.getElementById('tokens-generated');
+        const tokensPerSecEl = document.getElementById('tokens-per-sec');
+        
+        function updateStatus(message, type = 'info', showSpinner = false) {
+            statusEl.className = `status ${type}`;
+            statusEl.innerHTML = showSpinner 
+                ? `<div class="spinner"></div><span>${message}</span>`
+                : `<span>${message}</span>`;
+        }
+        
+        async function checkWebGPU() {
+            if (!navigator.gpu) {
+                updateStatus('❌ WebGPU not supported. Please use Chrome 113+ or Edge 113+', 'error');
+                return false;
+            }
+            
+            try {
+                const adapter = await navigator.gpu.requestAdapter();
+                if (!adapter) {
+                    updateStatus('❌ No WebGPU adapter found', 'error');
+                    return false;
+                }
+                return true;
+            } catch (e) {
+                updateStatus(`❌ WebGPU error: ${e.message}`, 'error');
+                return false;
+            }
+        }
+        
+        async function loadModel() {
+            try {
+                updateStatus('📦 Loading model from Hugging Face (this may take a minute)...', 'info', true);
+                
+                // Load the text generation pipeline with your custom model
+                generator = await pipeline(
+                    'text-generation',
+                    'anand-ai/theme-suggester-onnx-int8',
+                    {
+                        device: 'webgpu',
+                        dtype: 'q8', // INT8 quantized
+                    }
+                );
+                
+                updateStatus('✓ Model loaded successfully! Ready to generate themes.', 'success');
+                runBtn.disabled = false;
+                
+            } catch (error) {
+                updateStatus(`❌ Error loading model: ${error.message}`, 'error');
+                console.error('Model loading error:', error);
+            }
+        }
+        
+        async function generateTheme() {
+            if (!generator || isGenerating) return;
+            
+            const input = inputText.value.trim();
+            if (!input) {
+                updateStatus('⚠️ Please enter a prompt', 'warning');
+                return;
+            }
+            
+            try {
+                isGenerating = true;
+                runBtn.disabled = true;
+                stopBtn.disabled = false;
+                stopBtn.style.display = 'flex';
+                updateStatus('🎨 Generating theme suggestion...', 'info', true);
+                outputEl.classList.remove('show');
+                outputContent.textContent = '';
+                
+                const startTime = performance.now();
+                let tokenCount = 0;
+                
+                // Create a proper chat format message
+                const messages = [
+                    { role: "user", content: input }
+                ];
+                
+                // Generate with streaming
+                const result = await generator(messages, {
+                    max_new_tokens: 256,
+                    temperature: 0.7,
+                    top_p: 0.9,
+                    do_sample: true,
+                    repetition_penalty: 1.1,
+                });
+                
+                const endTime = performance.now();
+                const inferenceTime = ((endTime - startTime) / 1000).toFixed(2);
+                
+                // Extract the generated text
+                const generatedText = result[0].generated_text[result[0].generated_text.length - 1].content;
+                tokenCount = generatedText.split(/\s+/).length;
+                const tokensPerSec = (tokenCount / parseFloat(inferenceTime)).toFixed(1);
+                
+                // Display results
+                outputContent.textContent = generatedText;
+                inferenceTimeEl.textContent = `${inferenceTime}s`;
+                tokensGeneratedEl.textContent = tokenCount;
+                tokensPerSecEl.textContent = tokensPerSec;
+                outputEl.classList.add('show');
+                
+                updateStatus('✓ Theme generated successfully!', 'success');
+                
+            } catch (error) {
+                updateStatus(`❌ Generation error: ${error.message}`, 'error');
+                console.error('Generation error:', error);
+            } finally {
+                isGenerating = false;
+                runBtn.disabled = false;
+                stopBtn.disabled = true;
+                stopBtn.style.display = 'none';
+            }
+        }
+        
+        // Event listeners
+        runBtn.addEventListener('click', generateTheme);
+        
+        inputText.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !runBtn.disabled) {
+                generateTheme();
+            }
+        });
+        
+        // Example buttons
+        document.querySelectorAll('.example-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                inputText.value = btn.dataset.example;
+                inputText.focus();
+            });
+        });
+        
+        // Initialize
+        (async () => {
+            const webgpuSupported = await checkWebGPU();
+            if (webgpuSupported) {
+                await loadModel();
+            }
+        })();
+    </script>
 </body>
 </html>
