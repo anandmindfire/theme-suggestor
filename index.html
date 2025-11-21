@@ -3,261 +3,212 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Theme Suggester – ONNX WebGPU Demo</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/onnxruntime-web/1.17.1/ort.webgpu.min.js"></script>
+  <title>Theme Suggester – ONNX WebGPU</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/onnxruntime-web/1.18.0/ort.webgpu.min.js"></script>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
     body {
       font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;
+      background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
+      min-height:100vh; display:flex; align-items:center; justify-content:center;
+      padding:20px;
     }
     .container {
       background:white; border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,0.3);
       max-width:800px; width:100%; padding:40px;
     }
     h1 { color:#333; margin-bottom:10px; font-size:2em; }
-    .subtitle { color:#666; margin-bottom:30px; font-size:0.9em; }
-    .status { padding:15px; border-radius:8px; margin-bottom:20px;
-      font-weight:500; display:flex; align-items:center; gap:10px;
-    }
+    .subtitle { color:#666; margin-bottom:20px; font-size:0.9em; }
+    .status { padding:15px; border-radius:8px; margin-bottom:20px; font-weight:500;
+      display:flex; align-items:center; gap:10px; }
     .status.info { background:#e3f2fd; color:#1976d2; border-left:4px solid #1976d2; }
     .status.success { background:#e8f5e9; color:#388e3c; border-left:4px solid #388e3c; }
     .status.error { background:#ffebee; color:#c62828; border-left:4px solid #c62828; }
-    .status.warning { background:#fff3e0; color:#e65100; border-left:4px solid #e65100; }
     .spinner {
-      border:3px solid #f3f3f3; border-top:3px solid #667eea;
-      border-radius:50%; width:20px; height:20px; animation:spin 1s linear infinite;
+      border:3px solid #f3f3f3; border-top:3px solid #667eea; border-radius:50%;
+      width:20px; height:20px; animation:spin 1s linear infinite;
     }
-    @keyframes spin { 0%{transform:rotate(0deg);}100%{transform:rotate(360deg);} }
-    .input-group { margin-bottom:20px; }
-    label { display:block; color:#555; font-weight:600; margin-bottom:8px; }
+    @keyframes spin { 0%{transform:rotate(0deg);} 100%{transform:rotate(360deg);} }
     textarea {
       width:100%; padding:12px; border:2px solid #ddd; border-radius:8px;
-      font-size:14px; font-family:inherit; resize:vertical; min-height:100px;
-      transition:border-color 0.3s;
+      font-size:14px; min-height:100px; resize:vertical; margin-bottom:20px;
     }
-    textarea:focus { outline:none; border-color:#667eea; }
     button {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
       color:white; border:none; padding:14px 32px; border-radius:8px;
-      font-size:16px; font-weight:600; cursor:pointer; transition:transform .2s,box-shadow .2s;
-      width:100%;
+      font-size:16px; cursor:pointer; width:100%;
     }
-    button:hover:not(:disabled) { transform:translateY(-2px); box-shadow:0 8px 20px rgba(102,126,234,0.4); }
-    button:disabled { opacity:0.6; cursor:not-allowed; }
-    .output { margin-top:20px; padding:20px; background:#f8f9fa; border-radius:8px; border:2px solid #e9ecef; display:none; }
-    .output.show { display:block; }
-    .output h3 { color:#333; margin-bottom:12px; }
-    .output-content { color:#555; line-height:1.6; white-space:pre-wrap; word-wrap:break-word; }
-    .model-info { background:#f8f9fa; padding:15px; border-radius:8px; margin-bottom:20px; font-size:0.85em; color:#666; }
-    .model-info strong { color:#333; }
+    .output { margin-top:20px; padding:20px; background:#f7f7f7;
+      border-radius:8px; display:none; white-space:pre-wrap; }
   </style>
 </head>
+
 <body>
-  <div class="container">
-    <h1>🎨 Theme Suggester</h1>
-    <p class="subtitle">ONNX INT8 Model with WebGPU Acceleration</p>
-    <div id="status" class="status info">
-      <div class="spinner"></div><span>Checking WebGPU support...</span>
-    </div>
-    <div class="model-info">
-      <strong>Model:</strong> anand-ai/theme-suggester-onnx-int8<br>
-      <strong>Base:</strong> Qwen2.5-0.5B-Instruct (Fine-tuned on 20k samples)<br>
-      <strong>Format:</strong> ONNX INT8 Quantized
-    </div>
-    <div class="input-group">
-      <label for="input-text">Enter your prompt:</label>
-      <textarea id="input-text" placeholder="Example: I want a theme for a tech startup website..."></textarea>
-    </div>
-    <button id="run-btn" disabled>Run Inference</button>
-    <div id="output" class="output">
-      <h3>Output:</h3>
-      <div class="output-content" id="output-content"></div>
-    </div>
+<div class="container">
+  <h1>🎨 Theme Suggester</h1>
+  <p class="subtitle">Qwen2.5 – ONNX INT8 – WebGPU Inference</p>
+
+  <div id="status" class="status info">
+    <div class="spinner"></div>
+    <span>Checking WebGPU support...</span>
   </div>
 
-  <script type="module">
-    import { Tokenizer } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@3.3.0/dist/tokenizer.esm.js';
+  <textarea id="input-text" placeholder="Example: Suggest a theme for a healthcare website..."></textarea>
+  <button id="run-btn" disabled>Run Inference</button>
 
-    const modelUrl = 'https://huggingface.co/anand-ai/theme-suggester-onnx-int8/resolve/main/model_quantized.onnx';
-    const tokenizerUrl = 'https://huggingface.co/anand-ai/theme-suggester-onnx-int8/resolve/main/tokenizer.json';
+  <div id="output" class="output"></div>
+</div>
 
-    const statusEl = document.getElementById('status');
-    const runBtn = document.getElementById('run-btn');
-    const inputText = document.getElementById('input-text');
-    const outputEl = document.getElementById('output');
-    const outputContent = document.getElementById('output-content');
+<script type="module">
+  import { AutoTokenizer } from "https://cdn.jsdelivr.net/npm/@xenova/transformers@3.2.0/dist/transformers.esm.js";
 
-    let session = null;
-    let tokenizer = null;
+  const modelUrl =
+    "https://huggingface.co/anand-ai/theme-suggester-onnx-int8/resolve/main/model_quantized.onnx";
 
-    function updateStatus(message, type='info', showSpinner=false) {
-      statusEl.className = `status ${type}`;
-      statusEl.innerHTML = showSpinner 
-        ? `<div class="spinner"></div><span>${message}</span>`
-        : `<span>${message}</span>`;
+  const tokenizerBase =
+    "https://huggingface.co/anand-ai/theme-suggester-onnx-int8/resolve/main/";
+
+  let tokenizer;
+  let session;
+
+  const statusEl = document.getElementById("status");
+  const runBtn = document.getElementById("run-btn");
+  const outputEl = document.getElementById("output");
+
+  function setStatus(msg, type = "info", spinner = false) {
+    statusEl.className = `status ${type}`;
+    statusEl.innerHTML = spinner
+      ? `<div class="spinner"></div><span>${msg}</span>`
+      : `<span>${msg}</span>`;
+  }
+
+  async function checkWebGPU() {
+    if (!navigator.gpu) {
+      setStatus("❌ WebGPU not supported. Use Chrome/Edge 113+.", "error");
+      return false;
     }
+    setStatus("✓ WebGPU supported!", "success");
+    return true;
+  }
 
-    async function checkWebGPU() {
-      if (!navigator.gpu) {
-        updateStatus('❌ WebGPU is not supported in this browser. Please use Chrome 113+ or Edge 113+', 'error');
-        return false;
-      }
-      try {
-        const adapter = await navigator.gpu.requestAdapter();
-        if (!adapter) {
-          updateStatus('❌ No WebGPU adapter found', 'error');
-          return false;
-        }
-        updateStatus('✓ WebGPU is supported and available', 'success');
-        return true;
-      } catch (e) {
-        updateStatus(`❌ WebGPU error: ${e.message}`, 'error');
-        return false;
-      }
-    }
+  async function loadTokenizer() {
+    setStatus("Loading tokenizer...", "info", true);
+    tokenizer = await AutoTokenizer.fromPretrained(tokenizerBase);
+    setStatus("✓ Tokenizer loaded", "success");
+  }
 
-    async function loadModel() {
-      try {
-        updateStatus('Loading model from Hugging Face...', 'info', true);
-        // Configure ONNX Runtime for WebGPU
-        ort.env.wasm.numThreads = 1;
-        ort.env.wasm.simd = true;
+  async function loadModel() {
+    setStatus("Loading ONNX Model…", "info", true);
 
-        session = await ort.InferenceSession.create(modelUrl, {
-          executionProviders: ['webgpu'],
-          graphOptimizationLevel: 'all'
-        });
+    ort.env.wasm.numThreads = 1;
 
-        updateStatus('✓ Model loaded successfully!', 'success');
-        runBtn.disabled = false;
-
-        console.log('Input names:', session.inputNames);
-        console.log('Output names:', session.outputNames);
-      } catch (error) {
-        updateStatus(`❌ Error loading model: ${error.message}`, 'error');
-        console.error('Model loading error:', error);
-      }
-    }
-
-    async function loadTokenizer() {
-      updateStatus('Loading tokenizer...', 'info', true);
-      tokenizer = await Tokenizer.fromUrl(tokenizerUrl, { type: 'BPE' });
-      updateStatus('✓ Tokenizer loaded', 'success');
-    }
-
-    function createInitialKVCache() {
-      const batch = 1;
-      const num_kv_heads = 2;
-      const head_dim = 64;
-      const layers = 24;
-      const past_seq_len = 0;
-
-      const kvCache = {};
-      for (let i = 0; i < layers; i++) {
-        kvCache[`past_key_values.${i}.key`] =
-          new ort.Tensor('float32', new Float32Array(batch * num_kv_heads * past_seq_len * head_dim),
-            [batch, num_kv_heads, past_seq_len, head_dim]);
-        kvCache[`past_key_values.${i}.value`] =
-          new ort.Tensor('float32', new Float32Array(batch * num_kv_heads * past_seq_len * head_dim),
-            [batch, num_kv_heads, past_seq_len, head_dim]);
-      }
-      return kvCache;
-    }
-
-    async function runInference(prompt, maxLength=50) {
-      if (!session || !tokenizer) {
-        updateStatus('❌ Model or tokenizer not loaded', 'error');
-        return;
-      }
-
-      outputEl.classList.remove('show');
-      updateStatus('Running inference...', 'info', true);
-
-      // Tokenize
-      const enc = await tokenizer.encode(prompt);
-      let inputIds = enc.ids.map(id => BigInt(id));
-      let attentionMask = inputIds.map(_ => 1n);
-      let positionIds = inputIds.map((_, i) => BigInt(i));
-
-      const batch = 1;
-
-      let kvCache = createInitialKVCache();
-
-      const generated = [...inputIds];
-
-      for (let step = 0; step < maxLength; step++) {
-        const inputIdsTensor = new ort.Tensor('int64',
-          BigInt64Array.from(inputIds), [batch, inputIds.length]);
-
-        const attentionMaskTensor = new ort.Tensor('int64',
-          BigInt64Array.from(attentionMask), [batch, attentionMask.length]);
-
-        const positionIdsTensor = new ort.Tensor('int64',
-          BigInt64Array.from(positionIds), [batch, positionIds.length]);
-
-        const feeds = {
-          input_ids: inputIdsTensor,
-          attention_mask: attentionMaskTensor,
-          position_ids: positionIdsTensor,
-          ...kvCache
-        };
-
-        const results = await session.run(feeds);
-
-        const logits = results.logits.data;
-        // Greedy decode: pick the highest logit of last token
-        const vocabSize = logits.length / (inputIds.length * batch);
-        const lastLogits = logits.slice((inputIds.length - 1) * vocabSize);
-        let maxIdx = 0;
-        let maxVal = lastLogits[0];
-        for (let i = 1; i < lastLogits.length; i++) {
-          if (lastLogits[i] > maxVal) { maxVal = lastLogits[i]; maxIdx = i; }
-        }
-
-        const nextToken = BigInt(maxIdx);
-        generated.push(nextToken);
-
-        // Update for next iteration
-        inputIds = [nextToken];
-        attentionMask = [1n];
-        positionIds = [BigInt(positionIds[positionIds.length - 1] + 1n)];
-
-        // Update kvCache with present_* tensors
-        for (let i = 0; i < 24; i++) {
-          kvCache[`past_key_values.${i}.key`] = results[`present.${i}.key`];
-          kvCache[`past_key_values.${i}.value`] = results[`present.${i}.value`];
-        }
-
-        // Stop if EOS
-        if (nextToken === BigInt(151645)) break; // eos_token_id
-
-      } // end for steps
-
-      const decoded = await tokenizer.decode(Array.from(generated, x => Number(x)));
-      updateStatus('✓ Inference completed', 'success');
-      outputContent.textContent = decoded;
-      outputEl.classList.add('show');
-    }
-
-    runBtn.addEventListener('click', () => {
-      runBtn.disabled = true;
-      runInference(inputText.value.trim(), 50)
-        .catch(err => {
-          updateStatus(`❌ Inference error: ${err.message}`, 'error');
-          console.error('Inference error:', err);
-        })
-        .finally(() => { runBtn.disabled = false; });
+    session = await ort.InferenceSession.create(modelUrl, {
+      executionProviders: ["webgpu"],
+      graphOptimizationLevel: "all"
     });
 
-    (async () => {
-      const ok = await checkWebGPU();
-      if (ok) {
-        await loadTokenizer();
-        await loadModel();
+    console.log("Inputs:", session.inputNames);
+    console.log("Outputs:", session.outputNames);
+
+    setStatus("✓ Model loaded!", "success");
+    runBtn.disabled = false;
+  }
+
+  function createInitialKV() {
+    const layers = 24;
+    const num_kv_heads = 2;
+    const head_dim = 64;
+    const b = 1;
+    const past = 0;
+
+    const kv = {};
+    for (let i = 0; i < layers; i++) {
+      kv[`past_key_values.${i}.key`] =
+        new ort.Tensor("float32", new Float32Array(b * num_kv_heads * past * head_dim),
+          [1, num_kv_heads, past, head_dim]);
+
+      kv[`past_key_values.${i}.value`] =
+        new ort.Tensor("float32", new Float32Array(b * num_kv_heads * past * head_dim),
+          [1, num_kv_heads, past, head_dim]);
+    }
+    return kv;
+  }
+
+  async function generate(prompt, maxNewTokens = 80) {
+    outputEl.style.display = "none";
+    setStatus("Running inference...", "info", true);
+
+    const encoded = await tokenizer.encode(prompt);
+    let inputIds = encoded.ids.map(i => BigInt(i));
+
+    let pos = 0n;
+    let kv = createInitialKV();
+
+    const generated = [...inputIds];
+
+    for (let step = 0; step < maxNewTokens; step++) {
+      const inputTensor = new ort.Tensor("int64",
+        BigInt64Array.from(inputIds), [1, inputIds.length]);
+
+      const attnTensor = new ort.Tensor("int64",
+        BigInt64Array.from(inputIds.map(_ => 1n)), [1, inputIds.length]);
+
+      const posTensor = new ort.Tensor("int64",
+        BigInt64Array.from(inputIds.map(() => pos++)), [1, inputIds.length]);
+
+      const feeds = {
+        input_ids: inputTensor,
+        attention_mask: attnTensor,
+        position_ids: posTensor,
+        ...kv
+      };
+
+      const out = await session.run(feeds);
+      const logits = out.logits.data;
+
+      const vocab = logits.length / inputIds.length;
+      const last = logits.slice((inputIds.length - 1) * vocab);
+
+      let maxVal = last[0], maxIdx = 0;
+      for (let i = 1; i < last.length; i++) {
+        if (last[i] > maxVal) {
+          maxVal = last[i];
+          maxIdx = i;
+        }
       }
-    })();
-  </script>
+
+      const nextTok = BigInt(maxIdx);
+      generated.push(nextTok);
+
+      if (nextTok === BigInt(151645)) break; // eos
+
+      inputIds = [nextTok];
+
+      // Update KV
+      for (let i = 0; i < 24; i++) {
+        kv[`present.${i}.key`] = out[`present.${i}.key`];
+        kv[`present.${i}.value`] = out[`present.${i}.value`];
+      }
+    }
+
+    const decoded = await tokenizer.decode(generated.map(n => Number(n)));
+    setStatus("✓ Done!", "success");
+    outputEl.textContent = decoded;
+    outputEl.style.display = "block";
+  }
+
+  document.getElementById("run-btn").addEventListener("click", () => {
+    const text = document.getElementById("input-text").value.trim();
+    if (!text) return setStatus("⚠ Enter a prompt", "warning");
+    generate(text);
+  });
+
+  (async () => {
+    if (await checkWebGPU()) {
+      await loadTokenizer();
+      await loadModel();
+    }
+  })();
+</script>
 </body>
 </html>
