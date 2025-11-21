@@ -3,350 +3,341 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Theme Suggestor - GGUF Direct</title>
-    <script type="module">
-        let llamaCpp = null;
-        let model = null;
-        let ctx = null;
-
-        const statusEl = document.getElementById('status');
-        const loadBtn = document.getElementById('loadBtn');
-        const modelUrlInput = document.getElementById('modelUrl');
-        const promptInput = document.getElementById('prompt');
-        const generateBtn = document.getElementById('generateBtn');
-        const outputEl = document.getElementById('output');
-        const progressEl = document.getElementById('progress');
-
-        async function loadLlamaCpp() {
-            statusEl.textContent = 'Loading llama.cpp WASM...';
-            
-            try {
-                // Import llama.cpp WASM
-                const { LlamaCpp } = await import('https://cdn.jsdelivr.net/npm/@lmstudio-ai/llama-cpp-wasm@0.0.9/+esm');
-                
-                llamaCpp = await LlamaCpp.create();
-                statusEl.textContent = 'llama.cpp WASM loaded! Ready to load model.';
-                statusEl.style.color = '#10b981';
-                return true;
-            } catch (error) {
-                statusEl.textContent = `Error loading llama.cpp: ${error.message}`;
-                statusEl.style.color = '#ef4444';
-                return false;
-            }
-        }
-
-        async function loadModel() {
-            if (!llamaCpp) {
-                const success = await loadLlamaCpp();
-                if (!success) return;
-            }
-
-            const modelUrl = modelUrlInput.value.trim();
-            if (!modelUrl) {
-                alert('Please enter a model URL');
-                return;
-            }
-
-            loadBtn.disabled = true;
-            statusEl.textContent = 'Downloading model...';
-            progressEl.style.display = 'block';
-            progressEl.textContent = 'Starting download...';
-
-            try {
-                // Download the model
-                const response = await fetch(modelUrl);
-                const contentLength = response.headers.get('content-length');
-                const total = parseInt(contentLength, 10);
-                let loaded = 0;
-
-                const reader = response.body.getReader();
-                const chunks = [];
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-
-                    chunks.push(value);
-                    loaded += value.length;
-
-                    const percent = Math.round((loaded / total) * 100);
-                    progressEl.textContent = `Downloading: ${(loaded / 1024 / 1024).toFixed(1)}MB / ${(total / 1024 / 1024).toFixed(1)}MB (${percent}%)`;
-                }
-
-                // Combine chunks
-                const modelData = new Uint8Array(loaded);
-                let position = 0;
-                for (const chunk of chunks) {
-                    modelData.set(chunk, position);
-                    position += chunk.length;
-                }
-
-                statusEl.textContent = 'Loading model into memory...';
-                progressEl.textContent = 'Initializing model...';
-
-                // Load the model
-                model = await llamaCpp.loadModel(modelData, {
-                    n_ctx: 2048,
-                    n_batch: 512,
-                    n_threads: 4
-                });
-
-                statusEl.textContent = '✓ Model loaded successfully!';
-                statusEl.style.color = '#10b981';
-                progressEl.style.display = 'none';
-                generateBtn.disabled = false;
-                loadBtn.textContent = 'Model Loaded ✓';
-                loadBtn.style.background = '#10b981';
-
-            } catch (error) {
-                console.error('Load error:', error);
-                statusEl.textContent = `❌ Error: ${error.message}`;
-                statusEl.style.color = '#ef4444';
-                loadBtn.disabled = false;
-                progressEl.style.display = 'none';
-            }
-        }
-
-        async function generate() {
-            if (!model) {
-                alert('Please load a model first');
-                return;
-            }
-
-            const prompt = promptInput.value.trim();
-            if (!prompt) {
-                alert('Please enter a prompt');
-                return;
-            }
-
-            generateBtn.disabled = true;
-            generateBtn.textContent = 'Generating...';
-            outputEl.textContent = '';
-
-            try {
-                const fullPrompt = `<|system|>You are a helpful assistant that suggests creative color themes and design ideas.</|system|>
-<|user|>${prompt}</|user|>
-<|assistant|>`;
-
-                let response = '';
-                
-                await model.generate(fullPrompt, {
-                    max_tokens: 512,
-                    temperature: 0.7,
-                    top_p: 0.9,
-                    onToken: (token) => {
-                        response += token;
-                        outputEl.textContent = response;
-                        outputEl.scrollTop = outputEl.scrollHeight;
-                    }
-                });
-
-            } catch (error) {
-                console.error('Generation error:', error);
-                outputEl.textContent = `❌ Error: ${error.message}`;
-            }
-
-            generateBtn.disabled = false;
-            generateBtn.textContent = 'Generate Theme Suggestion';
-        }
-
-        window.addEventListener('load', () => {
-            loadBtn.addEventListener('click', loadModel);
-            generateBtn.addEventListener('click', generate);
-            
-            promptInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    generate();
-                }
-            });
-        });
-    </script>
+    <title>Theme Suggester - ONNX WebGPU Demo</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/onnxruntime-web/1.17.1/ort.webgpu.min.js"></script>
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-
+        
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             padding: 20px;
         }
-
+        
         .container {
             background: white;
             border-radius: 16px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            max-width: 900px;
-            margin: 0 auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 800px;
+            width: 100%;
             padding: 40px;
         }
-
+        
         h1 {
-            color: #1f2937;
+            color: #333;
             margin-bottom: 10px;
             font-size: 2em;
         }
-
+        
         .subtitle {
-            color: #6b7280;
+            color: #666;
             margin-bottom: 30px;
+            font-size: 0.9em;
         }
-
-        #status {
-            padding: 12px;
-            background: #f3f4f6;
+        
+        .status {
+            padding: 15px;
             border-radius: 8px;
             margin-bottom: 20px;
-            font-size: 14px;
-            color: #4b5563;
             font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
-
-        #progress {
-            padding: 10px 12px;
-            background: #dbeafe;
-            border-radius: 6px;
-            margin-bottom: 15px;
-            font-size: 13px;
-            color: #1e40af;
-            display: none;
+        
+        .status.info {
+            background: #e3f2fd;
+            color: #1976d2;
+            border-left: 4px solid #1976d2;
         }
-
+        
+        .status.success {
+            background: #e8f5e9;
+            color: #388e3c;
+            border-left: 4px solid #388e3c;
+        }
+        
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+            border-left: 4px solid #c62828;
+        }
+        
+        .status.warning {
+            background: #fff3e0;
+            color: #e65100;
+            border-left: 4px solid #e65100;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .input-group {
+            margin-bottom: 20px;
+        }
+        
         label {
             display: block;
-            margin-bottom: 8px;
-            color: #374151;
+            color: #555;
             font-weight: 600;
-            font-size: 14px;
+            margin-bottom: 8px;
         }
-
-        input[type="text"], textarea {
+        
+        textarea {
             width: 100%;
             padding: 12px;
-            border: 2px solid #e5e7eb;
+            border: 2px solid #ddd;
             border-radius: 8px;
             font-size: 14px;
             font-family: inherit;
-            margin-bottom: 15px;
-            transition: border-color 0.2s;
+            resize: vertical;
+            min-height: 100px;
+            transition: border-color 0.3s;
         }
-
-        input[type="text"]:focus, textarea:focus {
+        
+        textarea:focus {
             outline: none;
             border-color: #667eea;
         }
-
-        textarea {
-            resize: vertical;
-            min-height: 100px;
-        }
-
+        
         button {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border: none;
-            padding: 12px 24px;
+            padding: 14px 32px;
             border-radius: 8px;
             font-size: 16px;
             font-weight: 600;
             cursor: pointer;
             transition: transform 0.2s, box-shadow 0.2s;
             width: 100%;
-            margin-bottom: 20px;
         }
-
+        
         button:hover:not(:disabled) {
             transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
         }
-
+        
         button:disabled {
             opacity: 0.6;
             cursor: not-allowed;
-            transform: none;
         }
-
-        #output {
-            background: #f9fafb;
-            border: 2px solid #e5e7eb;
-            border-radius: 8px;
+        
+        .output {
+            margin-top: 20px;
             padding: 20px;
-            min-height: 200px;
-            max-height: 400px;
-            overflow-y: auto;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 2px solid #e9ecef;
+            display: none;
+        }
+        
+        .output.show {
+            display: block;
+        }
+        
+        .output h3 {
+            color: #333;
+            margin-bottom: 12px;
+        }
+        
+        .output-content {
+            color: #555;
+            line-height: 1.6;
             white-space: pre-wrap;
             word-wrap: break-word;
-            font-size: 14px;
-            line-height: 1.6;
-            color: #1f2937;
         }
-
-        .info {
-            background: #eff6ff;
-            border-left: 4px solid #3b82f6;
-            padding: 12px;
+        
+        .model-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
             margin-bottom: 20px;
-            border-radius: 4px;
-            font-size: 13px;
-            color: #1e40af;
-            line-height: 1.5;
+            font-size: 0.85em;
+            color: #666;
         }
-
-        .warning {
-            background: #fef3c7;
-            border-left: 4px solid #f59e0b;
-            padding: 12px;
-            margin-bottom: 20px;
-            border-radius: 4px;
-            font-size: 13px;
-            color: #92400e;
-        }
-
-        code {
-            background: #f3f4f6;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 12px;
-            font-family: 'Courier New', monospace;
+        
+        .model-info strong {
+            color: #333;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🎨 Theme Suggestor - GGUF Direct</h1>
-        <p class="subtitle">Load and run GGUF models directly in your browser</p>
+        <h1>🎨 Theme Suggester</h1>
+        <p class="subtitle">ONNX INT8 Model with WebGPU Acceleration</p>
         
-        <div class="info">
-            💡 <strong>This version uses llama.cpp WASM</strong> which can load GGUF files directly! No conversion needed.
+        <div id="status" class="status info">
+            <div class="spinner"></div>
+            <span>Checking WebGPU support...</span>
         </div>
-
-        <div class="warning">
-            ⚠️ <strong>Note:</strong> Model will download in full. For a ~640MB model, this will take a few minutes. Make sure you have stable internet.
+        
+        <div class="model-info">
+            <strong>Model:</strong> anand-ai/theme-suggester-onnx-int8<br>
+            <strong>Base:</strong> Qwen2.5-0.5B-Instruct (Fine-tuned on 20k samples)<br>
+            <strong>Format:</strong> ONNX INT8 Quantized
         </div>
-
-        <div id="status">Ready to load. Enter your model URL below.</div>
-        <div id="progress"></div>
-
-        <label for="modelUrl">Model URL (Direct link to .gguf file):</label>
-        <input 
-            type="text" 
-            id="modelUrl" 
-            value="https://huggingface.co/anand-ai/theme-suggestor-Q4_K_M-GGUF/resolve/main/theme-suggestor-q4_k_m.gguf"
-            placeholder="https://huggingface.co/..."
-        />
-
-        <button id="loadBtn">Load Model</button>
-
-        <label for="prompt">Your Prompt:</label>
-        <textarea id="prompt" placeholder="Example: Suggest a modern color theme for a meditation app with hex codes">Suggest a color theme for a meditation app</textarea>
-
-        <button id="generateBtn" disabled>Generate Theme Suggestion</button>
-
-        <div id="output">Your generated theme will appear here...</div>
+        
+        <div class="input-group">
+            <label for="input-text">Enter your prompt:</label>
+            <textarea id="input-text" placeholder="Example: I want a theme for a tech startup website..."></textarea>
+        </div>
+        
+        <button id="run-btn" disabled>Run Inference</button>
+        
+        <div id="output" class="output">
+            <h3>Output:</h3>
+            <div class="output-content" id="output-content"></div>
+        </div>
     </div>
+
+    <script>
+        let session = null;
+        let tokenizer = null;
+        const modelUrl = 'https://huggingface.co/anand-ai/theme-suggester-onnx-int8/resolve/main/model.onnx';
+        
+        const statusEl = document.getElementById('status');
+        const runBtn = document.getElementById('run-btn');
+        const inputText = document.getElementById('input-text');
+        const outputEl = document.getElementById('output');
+        const outputContent = document.getElementById('output-content');
+        
+        function updateStatus(message, type = 'info', showSpinner = false) {
+            statusEl.className = `status ${type}`;
+            statusEl.innerHTML = showSpinner 
+                ? `<div class="spinner"></div><span>${message}</span>`
+                : `<span>${message}</span>`;
+        }
+        
+        async function checkWebGPU() {
+            if (!navigator.gpu) {
+                updateStatus('❌ WebGPU is not supported in this browser. Please use Chrome 113+ or Edge 113+', 'error');
+                return false;
+            }
+            
+            try {
+                const adapter = await navigator.gpu.requestAdapter();
+                if (!adapter) {
+                    updateStatus('❌ No WebGPU adapter found', 'error');
+                    return false;
+                }
+                updateStatus('✓ WebGPU is supported and available', 'success');
+                return true;
+            } catch (e) {
+                updateStatus(`❌ WebGPU error: ${e.message}`, 'error');
+                return false;
+            }
+        }
+        
+        async function loadModel() {
+            try {
+                updateStatus('Loading model from Hugging Face...', 'info', true);
+                
+                // Configure ONNX Runtime to use WebGPU
+                ort.env.wasm.numThreads = 1;
+                ort.env.wasm.simd = true;
+                
+                session = await ort.InferenceSession.create(modelUrl, {
+                    executionProviders: ['webgpu'],
+                    graphOptimizationLevel: 'all'
+                });
+                
+                updateStatus('✓ Model loaded successfully!', 'success');
+                runBtn.disabled = false;
+                
+                console.log('Input names:', session.inputNames);
+                console.log('Output names:', session.outputNames);
+                
+            } catch (error) {
+                updateStatus(`❌ Error loading model: ${error.message}`, 'error');
+                console.error('Model loading error:', error);
+            }
+        }
+        
+        // Simple tokenizer (you'll need to adapt this to match your model's tokenizer)
+        function simpleTokenize(text) {
+            // This is a placeholder - you should implement proper tokenization
+            // For Qwen2.5, you'd typically need the actual tokenizer
+            const tokens = text.split(' ').map((word, idx) => idx + 1);
+            return new BigInt64Array(tokens);
+        }
+        
+        async function runInference() {
+            if (!session) {
+                updateStatus('❌ Model not loaded', 'error');
+                return;
+            }
+            
+            const input = inputText.value.trim();
+            if (!input) {
+                updateStatus('⚠️ Please enter some text', 'warning');
+                return;
+            }
+            
+            try {
+                runBtn.disabled = true;
+                updateStatus('Running inference...', 'info', true);
+                outputEl.classList.remove('show');
+                
+                // Tokenize input (this is simplified - adapt to your model's needs)
+                const inputIds = simpleTokenize(input);
+                
+                // Create input tensor
+                const inputTensor = new ort.Tensor('int64', inputIds, [1, inputIds.length]);
+                
+                // Run inference
+                const feeds = {};
+                feeds[session.inputNames[0]] = inputTensor;
+                
+                const startTime = performance.now();
+                const results = await session.run(feeds);
+                const inferenceTime = (performance.now() - startTime).toFixed(2);
+                
+                // Get output
+                const output = results[session.outputNames[0]];
+                
+                updateStatus(`✓ Inference completed in ${inferenceTime}ms`, 'success');
+                
+                // Display results
+                outputContent.textContent = `Output shape: ${output.dims}\n\nRaw output (first 20 values):\n${Array.from(output.data.slice(0, 20)).join(', ')}...`;
+                outputEl.classList.add('show');
+                
+            } catch (error) {
+                updateStatus(`❌ Inference error: ${error.message}`, 'error');
+                console.error('Inference error:', error);
+            } finally {
+                runBtn.disabled = false;
+            }
+        }
+        
+        runBtn.addEventListener('click', runInference);
+        
+        // Initialize
+        (async () => {
+            const webgpuSupported = await checkWebGPU();
+            if (webgpuSupported) {
+                await loadModel();
+            }
+        })();
+    </script>
 </body>
 </html>
