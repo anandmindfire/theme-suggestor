@@ -446,15 +446,15 @@
                 updateStatus('📦 Loading model from Hugging Face (this may take a minute)...', 'info', true);
                 
                 // Load the text generation pipeline with your custom model
+                // Fixed: Changed path from 'theme-suggester-ai' to 'theme-suggestor-ai' to match your actual repo
                 generator = await pipeline(
                     'text-generation',
-                    'anand-ai/theme-suggester-ai/onnx',
+                    'anand-ai/theme-suggestor-ai',
                     {
                         device: 'webgpu',
                         dtype: 'q8',
-                        config: {
-                            model_type: 'qwen2'
-                        }
+                        revision: 'main',
+                        subfolder: 'onnx'
                     }
                 );
                 
@@ -489,13 +489,12 @@
                 let tokenCount = 0;
                 
                 // Format the prompt for Qwen2.5 instruction following
-          const prompt = `<|system|>
-            You are an expert website theme designer AI. Create a complete, modern, professional theme for a healthcare website and give the entire answer only in clear, detailed bullet points. Include a full color palette with color names, HEX codes, RGB values, and a short note on where each color is used; list 2–3 fonts with their purpose and style; describe layout guidelines for header, navigation, hero section, content sections, footer, spacing, and grid rules; provide primary and secondary CTA text options with notes on tone; and include a short text-based moodboard describing emotions, imagery style, icon style, and UI style. Keep all answers concise, descriptive, and easy for a small model to follow.
-            <|user|>
-            ${input}
-            <|assistant|>
-            `;
-
+                const prompt = `<|system|>
+You are an expert website theme designer AI. Create a complete, modern, professional theme for a healthcare website and give the entire answer only in clear, detailed bullet points. Include a full color palette with color names, HEX codes, RGB values, and a short note on where each color is used; list 2–3 fonts with their purpose and style; describe layout guidelines for header, navigation, hero section, content sections, footer, spacing, and grid rules; provide primary and secondary CTA text options with notes on tone; and include a short text-based moodboard describing emotions, imagery style, icon style, and UI style. Keep all answers concise, descriptive, and easy for a small model to follow.
+<|user|>
+${input}
+<|assistant|>
+`;
                 
                 // Generate with streaming
                 const result = await generator(prompt, {
