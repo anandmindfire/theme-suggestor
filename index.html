@@ -459,9 +459,7 @@
                 updateStatus('📦 Loading model weights...', 'info', true);
                 model = await AutoModelForCausalLM.from_pretrained(model_id, {
                     device: 'webgpu',
-                    dtype: 'q8',
-                    subfolder: 'onnx',
-                    model_file_name: 'model.onnx'
+                    subfolder: 'onnx'
                 });
                 
                 updateStatus('✓ Model loaded successfully! Ready to generate themes.', 'success');
