@@ -396,13 +396,15 @@
     </div>
 
     <script type="module">
-        import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.1.2';
+        import { AutoModelForCausalLM, AutoTokenizer, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.1.2';
         
         // Configure environment
         env.allowLocalModels = false;
         env.allowRemoteModels = true;
         
         let generator = null;
+        let tokenizer = null;
+        let model = null;
         let isGenerating = false;
         
         const statusEl = document.getElementById('status');
@@ -445,21 +447,22 @@
             try {
                 updateStatus('📦 Loading model from Hugging Face (this may take a minute)...', 'info', true);
                 
-                // Load the text generation pipeline with your custom model
-                // Fixed: Changed path from 'theme-suggester-ai' to 'theme-suggestor-ai' to match your actual repo
-                generator = await pipeline(
-                    'text-generation',
-                    'anand-ai/theme-suggestor-ai',
-                    {
-                        device: 'webgpu',
-                        dtype: 'q8',
-                        revision: 'main',
-                        subfolder: 'onnx',
-                        config: {
-                            model_file_name: 'model.onnx'
-                        }
-                    }
-                );
+                const model_id = 'anand-ai/theme-suggestor-ai';
+                
+                // Load tokenizer
+                updateStatus('📦 Loading tokenizer...', 'info', true);
+                tokenizer = await AutoTokenizer.from_pretrained(model_id, {
+                    subfolder: 'onnx'
+                });
+                
+                // Load model
+                updateStatus('📦 Loading model weights...', 'info', true);
+                model = await AutoModelForCausalLM.from_pretrained(model_id, {
+                    device: 'webgpu',
+                    dtype: 'q8',
+                    subfolder: 'onnx',
+                    model_file_name: 'model.onnx'
+                });
                 
                 updateStatus('✓ Model loaded successfully! Ready to generate themes.', 'success');
                 runBtn.disabled = false;
@@ -471,7 +474,7 @@
         }
         
         async function generateTheme() {
-            if (!generator || isGenerating) return;
+            if (!model || !tokenizer || isGenerating) return;
             
             const input = inputText.value.trim();
             if (!input) {
@@ -489,7 +492,6 @@
                 outputContent.textContent = '';
                 
                 const startTime = performance.now();
-                let tokenCount = 0;
                 
                 // Format the prompt for Qwen2.5 instruction following
                 const prompt = `<|system|>
@@ -499,8 +501,12 @@ ${input}
 <|assistant|>
 `;
                 
-                // Generate with streaming
-                const result = await generator(prompt, {
+                // Tokenize input
+                const inputs = await tokenizer(prompt);
+                
+                // Generate
+                const outputs = await model.generate({
+                    ...inputs,
                     max_new_tokens: 256,
                     temperature: 0.7,
                     top_p: 0.9,
@@ -511,11 +517,16 @@ ${input}
                 const endTime = performance.now();
                 const inferenceTime = ((endTime - startTime) / 1000).toFixed(2);
                 
+                // Decode output
+                const decoded = tokenizer.batch_decode(outputs, { skip_special_tokens: false });
+                let generatedText = decoded[0];
+                
                 // Extract the generated text (remove the prompt part)
-                let generatedText = result[0].generated_text.replace(prompt, '').trim();
+                generatedText = generatedText.replace(prompt, '').trim();
                 // Remove any trailing special tokens
-                generatedText = generatedText.split('<|im_end|>')[0].trim();
-                tokenCount = generatedText.split(/\s+/).length;
+                generatedText = generatedText.split('<|im_end|>')[0].split('<|endoftext|>')[0].trim();
+                
+                const tokenCount = generatedText.split(/\s+/).length;
                 const tokensPerSec = (tokenCount / parseFloat(inferenceTime)).toFixed(1);
                 
                 // Display results
