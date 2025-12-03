@@ -460,7 +460,8 @@
                 model = await AutoModelForCausalLM.from_pretrained(model_id, {
                     device: 'webgpu',
                     subfolder: 'onnx',
-                    model_file_name: 'model_fp16_single'
+                    dtype: 'q8',
+                    model_file_name: 'model_int8_single'
                 });
                 
                 updateStatus('✓ Model loaded successfully! Ready to generate themes.', 'success');
